@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 #  KovaiHost - VPS Setup Toolkit
-#  Ubuntu update, speed test, benchmark, Pterodactyl Panel/Wings, tools, firewall
+#  Ubuntu update, speed test, benchmark, Pterodactyl Panel/Wings, tools, hostname, firewall
 #  Usage (online):  bash <(curl -s https://raw.githubusercontent.com/GoldenRex-kahe/kovaihost-setup/main/kovaihost-setup.sh)
 #  Usage (local):   sudo bash kovaihost-setup.sh
 # =============================================================================
@@ -178,7 +178,7 @@ install_pterodactyl() {
 }
 
 # =============================================================================
-#  5. Essential tools (neofetch/fastfetch etc.)
+#  5. Tools: essential packages, hostname changer
 # =============================================================================
 install_tools() {
     banner
@@ -220,6 +220,77 @@ EOF
     command -v fastfetch >/dev/null && fastfetch || { command -v neofetch >/dev/null && neofetch; }
     success "Tools installation complete."
     pause
+}
+
+change_hostname() {
+    banner
+    echo -e "${BOLD}KovaiHost Hostname Changer${NC}"
+    echo -e "Current hostname: ${GREEN}$(hostname)${NC}"
+    echo "Use letters, numbers and '-' only (no spaces). A domain like panel.kovaihost.com also works."
+    echo
+    local new old short esc
+    old="$(hostname)"
+    read -rp "New hostname [kovaihost-panel]: " new
+    new=${new:-kovaihost-panel}
+    # Spaces/underscores aren't allowed in hostnames: "KovaiHost Panel" -> "kovaihost-panel"
+    new=$(echo "$new" | tr '[:upper:]' '[:lower:]' | sed -E 's/[ _]+/-/g')
+
+    local label='[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?'
+    if [[ ${#new} -gt 253 || ! "$new" =~ ^${label}(\.${label})*$ ]]; then
+        error "Invalid hostname: '$new'"
+        pause; return
+    fi
+    if [[ "$new" == "$old" ]]; then
+        warn "Hostname is already '$new'."
+        pause; return
+    fi
+    confirm "Change hostname from '$old' to '$new'?" || return
+
+    if command -v hostnamectl >/dev/null 2>&1; then
+        hostnamectl set-hostname "$new"
+    else
+        echo "$new" > /etc/hostname
+        hostname "$new"
+    fi
+
+    # /etc/hosts: swap the old name for the new one and keep 127.0.1.1 pointing at it
+    short="${new%%.*}"
+    cp /etc/hosts /etc/hosts.kovaihost.bak
+    esc=$(printf '%s' "$old" | sed 's/[.[\*^$/]/\&/g')
+    sed -i -E "s/([[:space:]])${esc}([[:space:]]|$)/\1${new}\2/g" /etc/hosts
+    sed -i '/^127\.0\.1\.1[[:space:]]/d' /etc/hosts
+    if [[ "$short" != "$new" ]]; then
+        echo "127.0.1.1 $new $short" >> /etc/hosts
+    else
+        echo "127.0.1.1 $new" >> /etc/hosts
+    fi
+
+    # Stop cloud-init (used by most VPS providers) from resetting it on reboot
+    if [[ -d /etc/cloud ]]; then
+        mkdir -p /etc/cloud/cloud.cfg.d
+        echo "preserve_hostname: true" > /etc/cloud/cloud.cfg.d/99-kovaihost-hostname.cfg
+    fi
+
+    success "Hostname changed to '$(hostname)'. Backup of old hosts file: /etc/hosts.kovaihost.bak"
+    info "Log out and SSH back in to see the new name in your prompt."
+    pause
+}
+
+tools_menu() {
+    while true; do
+        banner
+        echo -e "${BOLD}KovaiHost Tools${NC}"
+        echo -e "  ${GREEN}1${NC}) Install essential tools (fastfetch/neofetch, htop, fail2ban...)"
+        echo -e "  ${GREEN}2${NC}) Change hostname (e.g. vpsq3132 -> kovaihost-panel)"
+        echo -e "  ${RED}0${NC}) Back"
+        read -rp "$(echo -e "${BOLD}KovaiHost Tools > ${NC}")" t
+        case "$t" in
+            1) install_tools ;;
+            2) change_hostname ;;
+            0) return ;;
+            *) warn "Invalid option, try again."; sleep 1 ;;
+        esac
+    done
 }
 
 # =============================================================================
@@ -317,7 +388,7 @@ main_menu() {
         echo -e "  ${GREEN}2${NC}) Network speed test (Ookla)"
         echo -e "  ${GREEN}3${NC}) Benchmark (YABS)"
         echo -e "  ${GREEN}4${NC}) Install Pterodactyl Panel / Wings"
-        echo -e "  ${GREEN}5${NC}) Install essential tools (fastfetch/neofetch, htop, fail2ban...)"
+        echo -e "  ${GREEN}5${NC}) Tools (essential packages, change hostname)"
         echo -e "  ${GREEN}6${NC}) Firewall setup (Panel, Wings, Minecraft, internal network)"
         echo -e "  ${GREEN}7${NC}) Run ALL steps (except tools)"
         echo -e "  ${RED}0${NC}) Exit"
@@ -328,7 +399,7 @@ main_menu() {
             2) run_speedtest ;;
             3) run_benchmark ;;
             4) install_pterodactyl ;;
-            5) install_tools ;;
+            5) tools_menu ;;
             6) setup_firewall ;;
             7) run_all ;;
             0) echo -e "${GREEN}Thank you for using KovaiHost! Goodbye.${NC}"; exit 0 ;;
