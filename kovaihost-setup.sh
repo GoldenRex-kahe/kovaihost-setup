@@ -2,7 +2,8 @@
 # =============================================================================
 #  KovaiHost - VPS Setup Toolkit
 #  Ubuntu update, speed test, benchmark, Pterodactyl Panel/Wings, tools, hostname, firewall
-#  Usage (online):  bash <(curl -s https://raw.githubusercontent.com/GoldenRex-kahe/kovaihost-setup/main/kovaihost-setup.sh)
+#  Usage (online):  bash <(curl -sL setup.kovaihost.cloud)
+#  Backup link:     bash <(curl -s https://raw.githubusercontent.com/GoldenRex-kahe/kovaihost-setup/main/kovaihost-setup.sh)
 #  Usage (local):   sudo bash kovaihost-setup.sh
 # =============================================================================
 

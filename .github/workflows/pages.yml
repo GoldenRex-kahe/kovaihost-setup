@@ -1,0 +1,40 @@
+# Publishes the script to https://setup.kovaihost.cloud so it can be run with:
+#   bash <(curl -sL setup.kovaihost.cloud)
+name: Deploy setup.kovaihost.cloud
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build site
+        run: |
+          mkdir -p _site
+          # The site root serves the script itself, so "curl setup.kovaihost.cloud" returns it
+          cp kovaihost-setup.sh _site/index.html
+          cp kovaihost-setup.sh _site/kovaihost-setup.sh
+          echo "setup.kovaihost.cloud" > _site/CNAME
+          touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

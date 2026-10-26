@@ -7,13 +7,13 @@ One-command setup for KovaiHost game server VPS (Ubuntu).
 Log in as root (`sudo -i`), then:
 
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/GoldenRex-kahe/kovaihost-setup/main/kovaihost-setup.sh)
+bash <(curl -sL setup.kovaihost.cloud)
 ```
 
-or
+Backup link (works even if the domain is down):
 
 ```bash
-curl -sL https://raw.githubusercontent.com/GoldenRex-kahe/kovaihost-setup/main/kovaihost-setup.sh | bash
+bash <(curl -s https://raw.githubusercontent.com/GoldenRex-kahe/kovaihost-setup/main/kovaihost-setup.sh)
 ```
 
 ## Menu
