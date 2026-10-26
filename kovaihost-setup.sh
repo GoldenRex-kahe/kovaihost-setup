@@ -208,17 +208,138 @@ run_hyper_utility() {
     pause
 }
 
+# Name used for the database and its user: the hostname, made MySQL-safe (max 32 chars)
+db_name_from_hostname() {
+    hostname | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_]+/_/g; s/^_+//; s/_+$//' | cut -c1-32
+}
+
+create_database_host() {
+    banner
+    echo -e "${BOLD}KovaiHost Database Creator (Pterodactyl Database Host)${NC}"
+    echo "Creates a MySQL/MariaDB database + user that the panel uses to make"
+    echo "databases for game servers (Admin -> Databases -> Create New)."
+    echo
+
+    if ! command -v mysql >/dev/null 2>&1; then
+        warn "MySQL/MariaDB is not installed on this VPS."
+        confirm "Install MariaDB server now?" || return
+        apt-get update -y && apt-get install -y mariadb-server || { error "MariaDB install failed."; pause; return; }
+        systemctl enable --now mariadb >/dev/null 2>&1
+    fi
+    if ! mysql -u root -e "SELECT 1" >/dev/null 2>&1; then
+        error "Cannot log in to MySQL as root. Is the database server running?"
+        pause; return
+    fi
+
+    local name; name="$(db_name_from_hostname)"
+    [[ -z "$name" ]] && name="kovaihost"
+    echo -e "Database name and username (from hostname): ${GREEN}${name}${NC}"
+    read -rp "Press Enter to use it, or type another name: " in
+    if [[ -n "$in" ]]; then
+        name=$(echo "$in" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_]+/_/g; s/^_+//; s/_+$//' | cut -c1-32)
+    fi
+    [[ -z "$name" ]] && { error "Invalid name."; pause; return; }
+
+    echo
+    echo "Where is your Pterodactyl Panel?"
+    echo "  1) On this same VPS (database stays private - safest)"
+    echo "  2) On another server (allow remote connections)"
+    read -rp "Choose [1]: " where; where=${where:-1}
+
+    local db_host="127.0.0.1" user_host="127.0.0.1" panel_ip=""
+    if [[ "$where" == "2" ]]; then
+        read -rp "Panel server's public IP (blank = allow any IP, less secure): " panel_ip
+        if [[ -n "$panel_ip" && ! "$panel_ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
+            error "Invalid IPv4 address: '$panel_ip'"
+            pause; return
+        fi
+        user_host="${panel_ip:-%}"
+        db_host="$(hostname -I | awk '{print $1}')"
+    fi
+
+    if [[ -n "$(mysql -u root -N -e "SELECT 1 FROM mysql.user WHERE User='${name}' AND Host='${user_host}'")" ]]; then
+        warn "User '${name}'@'${user_host}' already exists."
+        confirm "Reset its password and keep going?" || return
+    fi
+
+    local pass; pass="$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24)"
+
+    mysql -u root << SQL
+CREATE DATABASE IF NOT EXISTS \`${name}\`;
+CREATE USER IF NOT EXISTS '${name}'@'${user_host}' IDENTIFIED BY '${pass}';
+ALTER USER '${name}'@'${user_host}' IDENTIFIED BY '${pass}';
+GRANT ALL PRIVILEGES ON *.* TO '${name}'@'${user_host}' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+SQL
+    if [[ $? -ne 0 ]]; then
+        error "Creating the database/user failed."
+        pause; return
+    fi
+
+    if [[ "$where" == "2" ]]; then
+        # Listen on all interfaces; a later-loaded drop-in overrides the default 127.0.0.1
+        local conf_dir=/etc/mysql/mariadb.conf.d
+        [[ -d $conf_dir ]] || conf_dir=/etc/mysql/mysql.conf.d
+        mkdir -p "$conf_dir"
+        printf '[mysqld]\nbind-address = 0.0.0.0\n' > "$conf_dir/99-kovaihost-remote.cnf"
+        systemctl restart mariadb 2>/dev/null || systemctl restart mysql
+        if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
+            if [[ -n "$panel_ip" ]]; then
+                ufw allow from "$panel_ip" to any port 3306 proto tcp comment 'KovaiHost MySQL from panel'
+            else
+                ufw allow 3306/tcp comment 'KovaiHost MySQL'
+            fi
+        fi
+        success "MySQL now accepts remote connections on port 3306."
+    fi
+
+    local out="/root/kovaihost-database-${name}.txt"
+    {
+        echo "KovaiHost - Pterodactyl Database Host details ($(date '+%Y-%m-%d %H:%M'))"
+        echo "Panel: Admin -> Databases -> Create New"
+        echo "----------------------------------------------"
+        echo "Name:           KovaiHost ${name}"
+        echo "Host:           ${db_host}"
+        echo "Port:           3306"
+        echo "Username:       ${name}"
+        echo "Password:       ${pass}"
+        echo "Linked Node:    the node on this VPS"
+        echo "----------------------------------------------"
+        echo "Database:       ${name}"
+        echo "Allowed from:   ${user_host}"
+    } > "$out"
+    chmod 600 "$out"
+
+    echo
+    success "Database host created!"
+    echo -e "${BLUE}=================================================${NC}"
+    echo -e "${BOLD} Enter these in Panel -> Admin -> Databases -> Create New${NC}"
+    echo -e "${BLUE}=================================================${NC}"
+    echo -e "  Name:        ${GREEN}KovaiHost ${name}${NC}"
+    echo -e "  Host:        ${GREEN}${db_host}${NC}"
+    echo -e "  Port:        ${GREEN}3306${NC}"
+    echo -e "  Username:    ${GREEN}${name}${NC}"
+    echo -e "  Password:    ${GREEN}${pass}${NC}"
+    echo -e "  Linked Node: ${GREEN}the node on this VPS${NC}"
+    echo -e "${BLUE}=================================================${NC}"
+    echo -e "  Database:    ${name}   |   Allowed from: ${user_host}"
+    info "Saved to ${out} (only root can read it)."
+    pause
+}
+
 panel_menu() {
     while true; do
         banner
         echo -e "${BOLD}KovaiHost Panel / Wings${NC}"
         echo -e "  ${GREEN}1${NC}) Pterodactyl Panel / Wings installer"
         echo -e "  ${GREEN}2${NC}) Hyper Utility (Hyper Game Panel + Wings Agent)"
+        echo -e "  ${GREEN}3${NC}) Create database host for Pterodactyl (name = hostname)"
         echo -e "  ${RED}0${NC}) Back"
         read -rp "$(echo -e "${BOLD}KovaiHost Panel > ${NC}")" pm
         case "$pm" in
             1) install_pterodactyl ;;
             2) run_hyper_utility ;;
+            3) create_database_host ;;
             0) return ;;
             *) warn "Invalid option, try again."; sleep 1 ;;
         esac
