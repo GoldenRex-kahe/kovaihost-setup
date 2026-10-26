@@ -160,7 +160,7 @@ run_benchmark() {
 }
 
 # =============================================================================
-#  4. Pterodactyl Panel / Wings
+#  4. Panel / Wings: Pterodactyl installer, Hyper Utility
 # =============================================================================
 install_pterodactyl() {
     banner
@@ -175,6 +175,54 @@ install_pterodactyl() {
     success "Pterodactyl installer finished."
     info "Recommended: run option 6 (Firewall) so the Panel/Wings/Minecraft ports are open."
     pause
+}
+
+run_hyper_utility() {
+    banner
+    ensure_curl
+    echo -e "${BOLD}KovaiHost - Hyper Utility${NC}"
+    echo "Installs, updates or removes Hyper Game Panel and the Wings Agent"
+    echo "(helps Wings connect to the panel and report usage)."
+    echo -e "Source: ${CYAN}https://hyper-r2.dgenx.net/hyperv1/hyper-utility${NC}"
+    echo
+    warn "Hyper Utility is a third-party program, not made by KovaiHost."
+    confirm "Download the latest Hyper Utility and run it?" || return
+
+    local dir=/opt/kovaihost
+    mkdir -p "$dir"
+    # Always fetch a fresh copy so you get the newest version
+    if curl -fsSL https://hyper-r2.dgenx.net/hyperv1/hyper-utility -o "$dir/hyper-utility.tmp"; then
+        mv "$dir/hyper-utility.tmp" "$dir/hyper-utility"
+        chmod +x "$dir/hyper-utility"
+        success "Hyper Utility downloaded to $dir/hyper-utility"
+    else
+        rm -f "$dir/hyper-utility.tmp"
+        error "Download failed. Check your internet connection or the Hyper download link."
+        pause; return
+    fi
+
+    echo
+    (cd "$dir" && ./hyper-utility)
+    success "Hyper Utility closed."
+    info "Run it again anytime: $dir/hyper-utility"
+    pause
+}
+
+panel_menu() {
+    while true; do
+        banner
+        echo -e "${BOLD}KovaiHost Panel / Wings${NC}"
+        echo -e "  ${GREEN}1${NC}) Pterodactyl Panel / Wings installer"
+        echo -e "  ${GREEN}2${NC}) Hyper Utility (Hyper Game Panel + Wings Agent)"
+        echo -e "  ${RED}0${NC}) Back"
+        read -rp "$(echo -e "${BOLD}KovaiHost Panel > ${NC}")" pm
+        case "$pm" in
+            1) install_pterodactyl ;;
+            2) run_hyper_utility ;;
+            0) return ;;
+            *) warn "Invalid option, try again."; sleep 1 ;;
+        esac
+    done
 }
 
 # =============================================================================
@@ -471,7 +519,7 @@ main_menu() {
         echo -e "  ${GREEN}1${NC}) Update packages & Ubuntu"
         echo -e "  ${GREEN}2${NC}) Network speed test (Ookla)"
         echo -e "  ${GREEN}3${NC}) Benchmark (YABS)"
-        echo -e "  ${GREEN}4${NC}) Install Pterodactyl Panel / Wings"
+        echo -e "  ${GREEN}4${NC}) Panel / Wings (Pterodactyl, Hyper Utility)"
         echo -e "  ${GREEN}5${NC}) Tools (essential packages, change hostname)"
         echo -e "  ${GREEN}6${NC}) Firewall setup (Panel, Wings, Minecraft, internal network)"
         echo -e "  ${GREEN}7${NC}) Run ALL steps (except tools)"
@@ -483,7 +531,7 @@ main_menu() {
             1) update_system ;;
             2) run_speedtest ;;
             3) run_benchmark ;;
-            4) install_pterodactyl ;;
+            4) panel_menu ;;
             5) tools_menu ;;
             6) setup_firewall ;;
             7) run_all ;;
