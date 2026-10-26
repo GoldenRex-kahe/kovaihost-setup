@@ -27,6 +27,7 @@ curl -sL https://raw.githubusercontent.com/GoldenRex-kahe/kovaihost-setup/main/k
 | 5 | Tools | Install essentials (fastfetch/neofetch, htop, git, screen, tmux, iperf3, jq, fail2ban, login MOTD) or change the hostname (e.g. `vpsq3132` → `kovaihost-panel`) |
 | 6 | Firewall (UFW) | SSH, 80/443, 8080, 2022, Minecraft Java 25565-25600 tcp/udp, Bedrock 19132-19133/udp, Pterodactyl Docker network 172.18.0.0/16 |
 | 7 | Run ALL | Steps 1, 2, 3, 4, 6 in order (skips tools) |
+| 8 | Ubuntu release upgrade | Upgrades to the next LTS (22.04 → 24.04) with `do-release-upgrade`. Asks you to type `UPGRADE`. **Take a VPS backup/snapshot first.** Not part of Run ALL. |
 | 0 | Exit | |
 
 Logs are written to `/var/log/kovaihost-setup.log`.

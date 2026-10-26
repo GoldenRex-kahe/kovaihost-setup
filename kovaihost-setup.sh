@@ -357,6 +357,90 @@ setup_firewall() {
 }
 
 # =============================================================================
+#  8. Ubuntu release upgrade (e.g. 22.04 -> 24.04)
+# =============================================================================
+upgrade_release() {
+    banner
+    . /etc/os-release
+    echo -e "${BOLD}KovaiHost Ubuntu Release Upgrade${NC}"
+    echo -e "Current version: ${GREEN}${PRETTY_NAME}${NC}"
+    echo
+
+    local major=${VERSION_ID%%.*}
+    if [[ "$major" -ge 24 ]]; then
+        success "You are already on Ubuntu ${VERSION_ID}, the latest LTS. Nothing to do."
+        pause; return
+    fi
+
+    echo -e "${RED}${BOLD}  !!! WARNING - READ BEFORE CONTINUING !!!${NC}"
+    echo -e "${YELLOW}  • This upgrades the whole OS to the next LTS release (22.04 -> 24.04)."
+    echo -e "  • TAKE A BACKUP / SNAPSHOT of this VPS first. A failed upgrade can leave it unbootable."
+    echo -e "  • It takes 15-30+ minutes and asks questions. Do NOT close the SSH window."
+    echo -e "  • Third-party repos (PHP PPA, Docker, etc.) are disabled during the upgrade."
+    echo -e "  • The VPS will reboot at the end.${NC}"
+
+    if [[ -d /var/www/pterodactyl || -x /usr/local/bin/wings ]]; then
+        echo
+        warn "Pterodactyl Panel/Wings is installed on this VPS."
+        echo -e "${YELLOW}  • Stop all game servers and tell your users about the downtime."
+        echo -e "  • After the upgrade, check the panel and wings, and re-enable disabled repos.${NC}"
+    fi
+
+    local free_gb
+    free_gb=$(df -BG --output=avail / | tail -n1 | tr -dc '0-9')
+    if [[ -n "$free_gb" && "$free_gb" -lt 5 ]]; then
+        error "Only ${free_gb}GB free on /. At least 5GB is needed for the upgrade."
+        pause; return
+    fi
+
+    echo
+    local answer
+    read -rp "$(echo -e "${RED}Type UPGRADE (in capitals) to continue: ${NC}")" answer
+    [[ "$answer" == "UPGRADE" ]] || { warn "Upgrade cancelled."; pause; return; }
+
+    info "Step 1/3: Bringing the current release fully up to date..."
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -y \
+      && apt-get -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" dist-upgrade -y \
+      && apt-get autoremove -y
+    if [[ $? -ne 0 ]]; then
+        error "Updating the current release failed. Fix that first (see $LOG_FILE)."
+        pause; return
+    fi
+    unset DEBIAN_FRONTEND
+
+    if [[ -f /var/run/reboot-required ]]; then
+        warn "A reboot is needed before the release upgrade can start."
+        echo -e "${YELLOW}After the reboot, run the KovaiHost script again and choose option 8.${NC}"
+        confirm "Reboot now?" && reboot
+        pause; return
+    fi
+
+    info "Step 2/3: Preparing the release upgrader..."
+    apt-get install -y update-manager-core
+    sed -i 's/^Prompt=.*/Prompt=lts/' /etc/update-manager/release-upgrades 2>/dev/null
+
+    # Over SSH the upgrader starts a backup SSH server on port 1022
+    if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
+        ufw allow 1022/tcp comment 'KovaiHost temporary upgrade SSH' >/dev/null
+        info "Opened port 1022 for the upgrader's backup SSH. Remove later: ufw delete allow 1022/tcp"
+    fi
+
+    info "Step 3/3: Starting the Ubuntu release upgrade. Answer the prompts on screen."
+    echo -e "${YELLOW}Tip: when asked to keep or replace config files, keeping your current version (N) is safest.${NC}"
+    echo
+    do-release-upgrade
+    local rc=$?
+    echo
+    if [[ $rc -eq 0 ]]; then
+        success "Release upgrade finished. Reboot if the upgrader did not already."
+    else
+        error "do-release-upgrade exited with code $rc. Check /var/log/dist-upgrade/ for details."
+    fi
+    pause
+}
+
+# =============================================================================
 #  7. Run everything
 # =============================================================================
 run_all() {
@@ -391,6 +475,7 @@ main_menu() {
         echo -e "  ${GREEN}5${NC}) Tools (essential packages, change hostname)"
         echo -e "  ${GREEN}6${NC}) Firewall setup (Panel, Wings, Minecraft, internal network)"
         echo -e "  ${GREEN}7${NC}) Run ALL steps (except tools)"
+        echo -e "  ${YELLOW}8${NC}) Upgrade Ubuntu release (22.04 -> 24.04) ${RED}[backup first!]${NC}"
         echo -e "  ${RED}0${NC}) Exit"
         echo -e "${BLUE}=================================================${NC}"
         read -rp "$(echo -e "${BOLD}KovaiHost > ${NC}")" choice
@@ -402,6 +487,7 @@ main_menu() {
             5) tools_menu ;;
             6) setup_firewall ;;
             7) run_all ;;
+            8) upgrade_release ;;
             0) echo -e "${GREEN}Thank you for using KovaiHost! Goodbye.${NC}"; exit 0 ;;
             *) warn "Invalid option, try again."; sleep 1 ;;
         esac
